@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IEEE 754 Floating-Point Visualizer</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceff3;--panel:#fff;--ink:#1b2430;--mute:#5d6a7a;--line:#d3d9e0;--acc:#1d4ed8;--sg:#b91c1c;--ex:#1d4ed8;--mn:#15803d;--hl:#fef3c7;--bad:#b91c1c;--ok:#15803d;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151c;--panel:#18202a;--ink:#e6ebf2;--mute:#93a1b3;--line:#2b3644;--acc:#7aa2ff;--sg:#ff8a8a;--ex:#7aa2ff;--mn:#5fd38a;--hl:#3a3216;--bad:#ff8a8a;--ok:#5fd38a;color-scheme:dark}}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+.mono,input,td,th,.bit{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+header{padding:18px 20px 6px}
+h1{margin:0;font-size:22px}
+header p{margin:4px 0 0;color:var(--mute);max-width:75ch}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;padding:14px 20px 28px}
+@media(max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.wide{grid-column:1/-1}
+h2{margin:0 0 8px;font-size:14px;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+button,select,input{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)}
+button{cursor:pointer}
+input{flex:1;min-width:180px;font-size:15px}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) button.on{color:#0b1220}}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.chip{font-size:12.5px;padding:3px 8px}
+.bits{display:flex;flex-wrap:wrap;gap:12px;margin:6px 0}
+.grp{display:flex;flex-direction:column;gap:3px}
+.grp small{font-size:12px;font-weight:600}
+.grp div{display:flex;flex-wrap:wrap;gap:2px}
+.bit{width:22px;height:30px;padding:0;border-radius:4px;font-size:13px;text-align:center;border:1px solid currentColor;background:transparent}
+.bit.one{color:#fff!important}
+.g-s{color:var(--sg)}.g-e{color:var(--ex)}.g-m{color:var(--mn)}
+.g-s .one{background:var(--sg)}.g-e .one{background:var(--ex)}.g-m .one{background:var(--mn)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bit.one{color:#0b1220!important}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+.kv dt{color:var(--mute)}.kv dd{margin:0;word-break:break-all}
+.formula{font-size:15px;padding:8px 10px;background:var(--bg);border-radius:6px;margin:8px 0}
+.err{color:var(--bad)}
+.good{color:var(--ok)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:4px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+.note{color:var(--mute);font-size:12.5px;margin:6px 0 0}
+</style>
+</head>
+<body>
+<header>
+<h1>IEEE 754 Floating-Point Visualizer</h1>
+<p>Type a number, or click bits directly. See how it is stored as sign, exponent and mantissa, what value the bits really mean, and how much rounding error the conversion caused.</p>
+</header>
+<main>
+<section class="wide">
+<div class="row" id="fmts" role="group" aria-label="Format"></div>
+<div class="row">
+<input id="inp" value="0.1" spellcheck="false" aria-label="Decimal number">
+<button id="bGo" class="on">Convert</button>
+</div>
+<div class="row" id="presets"></div>
+<div class="bits" id="bits"></div>
+<div class="mono" id="hex"></div>
+</section>
+
+<section>
+<h2>Field breakdown</h2>
+<dl class="kv" id="fields"></dl>
+<div class="formula mono" id="formula"></div>
+</section>
+
+<section>
+<h2>Stored value and rounding error</h2>
+<dl class="kv" id="errs"></dl>
+<p class="note" id="errnote"></p>
+</section>
+
+<section class="wide">
+<h2>Rounding error lab: same arithmetic, single vs double precision</h2>
+<div class="scroll"><table><thead><tr><th>Expression</th><th>Ideal (maths)</th><th>float32 result</th><th>float64 result</th></tr></thead><tbody id="lab" class="mono"></tbody></table></div>
+<p class="note">Computed live in your browser. float32 is simulated by rounding after every operation. Red means the result differs from the correctly rounded ideal value.</p>
+</section>
+
+<section class="wide">
+<h2>Format limits</h2>
+<div class="scroll"><table><thead><tr><th>Format</th><th>Bits (S/E/M)</th><th>Bias</th><th>Machine epsilon</th><th>Smallest subnormal</th><th>Smallest normal</th><th>Largest</th><th>Decimal digits</th></tr></thead><tbody id="lim" class="mono"></tbody></table></div>
+</section>
+</main>
+<script>
+const FM=[{n:'Half (16)',E:5,M:10},{n:'Single (32)',E:8,M:23},{n:'Double (64)',E:11,M:52}];
+let fi=1,bits=0n,typed='0.1';
+const $=id=>document.getElementById(id);
+const bias=f=>2**(f.E-1)-1;
+const mulp=(S,k)=>Number(S)*2**(k>>1)*2**(k-(k>>1));
+function rhe(v){const f=Math.floor(v),d=v-f;return d<.5?f:d>.5?f+1:(f%2===0?f:f+1)}
+
+function encode(x,f){
+  const {E,M}=f,b=bias(f),sg=(x<0||Object.is(x,-0))?1n:0n,sh=BigInt(E+M),emax=(1n<<BigInt(E))-1n;
+  if(Number.isNaN(x))return (emax<<BigInt(M))|(1n<<BigInt(M-1));
+  x=Math.abs(x);
+  let mag;
+  if(x===Infinity)mag=emax<<BigInt(M);
+  else if(x===0)mag=0n;
+  else{
+    let e=Math.floor(Math.log2(x));
+    while(2**e>x)e--;while(2**(e+1)<=x)e++;
+    if(e<1-b){const s=M+b-1;mag=BigInt(rhe(x*2**(s>>1)*2**(s-(s>>1))))}
+    else{
+      let m=rhe((x/2**e-1)*2**M);
+      if(m===2**M){e++;m=0}
+      mag=e+b>=Number(emax)?emax<<BigInt(M):(BigInt(e+b)<<BigInt(M))|BigInt(m);
+    }
+  }
+  return (sg<<sh)|mag;
+}
+function decode(w,f){
+  const {E,M}=f,b=bias(f),sign=Number(w>>BigInt(E+M)),ef=Number((w>>BigInt(M))&((1n<<BigInt(E))-1n)),mf=w&((1n<<BigInt(M))-1n),emax=2**E-1;
+  const r={sign,ef,mf};
+  if(ef===emax){r.kind=mf===0n?'inf':'nan';return r}
+  if(ef===0){r.kind=mf===0n?'zero':'sub';r.S=mf;r.k=1-b-M;r.ue=1-b}
+  else{r.kind='norm';r.S=mf|(1n<<BigInt(M));r.k=ef-b-M;r.ue=ef-b}
+  return r;
+}
+function toNum(w,f){
+  const d=decode(w,f),s=d.sign?-1:1;
+  if(d.kind==='inf')return s*Infinity;if(d.kind==='nan')return NaN;
+  if(d.kind==='zero')return s*0;return s*mulp(d.S,d.k);
+}
+function exactDec(S,k){
+  if(S===0n)return '0';
+  if(k>=0)return (S<<BigInt(k)).toString();
+  const t=-k;let s=(S*5n**BigInt(t)).toString();
+  if(s.length<=t)s='0'.repeat(t-s.length+1)+s;
+  const i=s.slice(0,s.length-t);let fr=s.slice(s.length-t).replace(/0+$/,'');
+  return fr?i+'.'+fr:i;
+}
+function ratSci(num,den){
+  if(num===0n)return '0';
+  const neg=num<0n;let a=neg?-num:num;
+  const sh=8-(a.toString().length-den.toString().length);
+  const q=sh>=0?a*10n**BigInt(sh)/den:a/(den*10n**BigInt(-sh));
+  const qs=q.toString(),ex=qs.length-1-sh;
+  return (neg?'-':'')+qs[0]+'.'+qs.slice(1,7)+' × 10^'+ex;
+}
+function parseDec(t){
+  const m=/^([+-]?)(\d*)\.?(\d*)(?:e([+-]?\d+))?$/i.exec(t.trim());
+  if(!m||(m[2]+m[3])==='')return null;
+  let N=BigInt(m[2]+m[3]),p=m[3].length-(m[4]?+m[4]:0);
+  if(p<0){N*=10n**BigInt(-p);p=0}
+  if(Math.abs(p)>5000)return null;
+  return {N:m[1]==='-'?-N:N,p:BigInt(p)};
+}
+function parseInput(t){
+  t=t.trim().toLowerCase();
+  if(t==='nan')return NaN;if(t==='inf'||t==='+inf'||t==='infinity')return Infinity;if(t==='-inf')return -Infinity;
+  if(t==='-0')return -0;
+  return parseDec(t)?Number(t):undefined;
+}
+const sci=x=>x===0?'0':x.toExponential(4);
+function render(){
+  const f=FM[fi],W=1+f.E+f.M,b=bias(f),d=decode(bits,f),bs=bits.toString(2).padStart(W,'0');
+  const gs=bs[0],ge=bs.slice(1,1+f.E),gm=bs.slice(1+f.E);
+  const grp=(cls,label,str,off)=>`<div class="grp ${cls}"><small>${label}</small><div>${[...str].map((c,i)=>`<button class="bit${c==='1'?' one':''}" data-i="${W-1-(off+i)}" aria-label="bit ${W-1-(off+i)}">${c}</button>`).join('')}</div></div>`;
+  $('bits').innerHTML=grp('g-s','sign (1)',gs,0)+grp('g-e',`exponent (${f.E})`,ge,1)+grp('g-m',`mantissa (${f.M})`,gm,1+f.E);
+  $('hex').textContent='Hex: 0x'+bits.toString(16).toUpperCase().padStart(W/4,'0');
+  document.querySelectorAll('.bit').forEach(el=>el.onclick=()=>{bits^=1n<<BigInt(el.dataset.i);const v=toNum(bits,f);typed=Object.is(v,-0)?'-0':String(v);$('inp').value=typed;render()});
+  const kindName={norm:'Normal number',sub:'Subnormal (denormal)',zero:'Zero',inf:'Infinity',nan:'NaN (not a number)'}[d.kind];
+  const expStr=ge;
+  $('fields').innerHTML=`<dt>Class</dt><dd>${kindName}</dd>
+  <dt class="g-s">Sign</dt><dd>${d.sign} → ${d.sign?'negative':'positive'}</dd>
+  <dt class="g-e">Exponent</dt><dd>${expStr} = ${d.ef}${d.kind==='norm'?`, minus bias ${b} = <b>${d.ef-b}</b>`:d.kind==='sub'?`, all zeros, so exponent is fixed at ${1-b}`:d.ef?', all ones (reserved)':''}</dd>
+  <dt class="g-m">Mantissa</dt><dd>${gm.length>26?gm.slice(0,26)+'…':gm}</dd>
+  <dt>Implicit bit</dt><dd>${d.kind==='norm'?'1 (hidden leading 1)':d.kind==='sub'?'0 (subnormal)':'—'}</dd>`;
+  const fr=gm.replace(/0+$/,'')||'0';
+  $('formula').innerHTML=d.kind==='norm'||d.kind==='sub'?`(−1)<sup>${d.sign}</sup> × ${d.kind==='norm'?1:0}.${fr.length>24?fr.slice(0,24)+'…':fr}<sub>2</sub> × 2<sup>${d.ue}</sup>`:d.kind==='zero'?`(−1)<sup>${d.sign}</sup> × 0`:d.kind==='inf'?`${d.sign?'−':'+'}∞ (exponent all ones, mantissa zero)`:'NaN (exponent all ones, mantissa non-zero)';
+  // error panel
+  let h='',note='';
+  if(d.kind==='norm'||d.kind==='sub'||d.kind==='zero'){
+    const ex=exactDec(d.S,d.k),shown=ex.length>70?ex.slice(0,70)+'…':ex,sgn=d.sign?'-':'';
+    h+=`<dt>You typed</dt><dd>${typed}</dd><dt>Stored exactly as</dt><dd>${sgn}${shown}</dd>`;
+    const P=parseDec(typed);
+    if(P){
+      const k=d.k;let sv=d.sign?-d.S:d.S,num,den;
+      const T=10n**P.p;
+      if(k>=0){num=(sv<<BigInt(k))*T-P.N;den=T}
+      else{num=sv*T-P.N*(1n<<BigInt(-k));den=(1n<<BigInt(-k))*T}
+      const mag=num<0n?-num:num;
+      h+=`<dt>Error (stored − typed)</dt><dd class="${num===0n?'good':'err'}">${num===0n?'0, exactly representable':ratSci(num,den)}</dd>`;
+      if(num!==0n&&P.N!==0n){h+=`<dt>Relative error</dt><dd>${ratSci(mag*10n**P.p,den*(P.N<0n?-P.N:P.N))}</dd>`;note='This number has no finite binary fraction, so rounding to the nearest representable value was unavoidable. Round-to-nearest-even picked the closest neighbour.'}
+      else if(num===0n)note='This value is a sum of powers of two, so it is stored without error.';
+    }
+    const m=bits&((1n<<BigInt(W-1))-1n),up=m+1n,dn=m-1n,v=toNum(m,f),vu=toNum(up,f);
+    if(Number.isFinite(vu)){h+=`<dt>Next value up</dt><dd>${vu.toPrecision(f.M>20?17:f.M>10?9:5)}</dd><dt>Spacing (ULP)</dt><dd>${sci(vu-v)}</dd>`}
+    if(dn>=0n)h+=`<dt>Next value down</dt><dd>${toNum(dn,f).toPrecision(f.M>20?17:f.M>10?9:5)}</dd>`;
+  }else h=`<dt>Value</dt><dd>${d.kind==='nan'?'NaN':(d.sign?'-':'+')+'Infinity'}</dd>`;
+  $('errs').innerHTML=h;$('errnote').textContent=note;
+}
+function convert(){
+  const f=FM[fi],x=parseInput($('inp').value);
+  if(x===undefined){$('errnote').textContent='Enter a decimal number (e.g. 3.14, -2.5e-3), inf, -inf, nan or -0.';return}
+  typed=$('inp').value.trim().toLowerCase();bits=encode(x,f);render();
+}
+$('fmts').innerHTML=FM.map((f,i)=>`<button data-i="${i}" class="${i===fi?'on':''}">${f.n}</button>`).join('');
+$('fmts').onclick=e=>{const i=e.target.dataset.i;if(i===undefined)return;fi=+i;[...$('fmts').children].forEach((c,j)=>c.classList.toggle('on',j===fi));convert()};
+['0.1','0.5','-118.625','3.14159','16777217','1e-40','1e39','-0','inf','nan'].forEach(p=>{const b=document.createElement('button');b.className='chip';b.textContent=p;b.onclick=()=>{$('inp').value=p;convert()};$('presets').append(b)});
+$('bGo').onclick=convert;$('inp').onkeydown=e=>{if(e.key==='Enter')convert()};
+
+// lab
+const f32=Math.fround,f64=x=>x;
+const LAB=[
+['0.1 + 0.2',r=>r(r(.1)+r(.2)),'0.3',.3],
+['0.1 × 3',r=>r(r(.1)*3),'0.3',.3],
+['1 − 0.9',r=>r(1-r(.9)),'0.1',.1],
+['0.1 added 10 times',r=>{let s=0;for(let i=0;i<10;i++)s=r(s+r(.1));return s},'1',1],
+['16777216 + 1',r=>r(16777216+1),'16777217',16777217],
+['1e16 + 1',r=>r(1e16+1),'10000000000000001',10000000000000001],
+['(1 + 1e-8) − 1',r=>r(r(1+r(1e-8))-1),'0.00000001',1e-8],
+['1 / 3 × 3',r=>r(r(1/3)*3),'1',1]];
+$('lab').innerHTML=LAB.map(([n,fn,ideal,iv])=>{
+  const cell=(r,p)=>{const v=fn(r),ok=v===r(iv);return `<td class="${ok?'good':'err'}">${v.toPrecision(p)} ${ok?'✓':'✗'}</td>`};
+  return `<tr><td>${n}</td><td>${ideal}</td>${cell(f32,9)}${cell(f64,17)}</tr>`}).join('');
+$('lim').innerHTML=FM.map(f=>{
+  const b=bias(f),M=f.M;
+  return `<tr><td>${f.n}</td><td>1/${f.E}/${M}</td><td>${b}</td><td>2^-${M} ≈ ${sci(2**-M)}</td><td>${sci(2**(1-b-M))}</td><td>${sci(2**(1-b))}</td><td>${sci((2-2**-M)*2**b)}</td><td>≈ ${((M+1)*Math.log10(2)).toFixed(1)}</td></tr>`}).join('');
+convert();
+</script>
+</body>
+</html>
